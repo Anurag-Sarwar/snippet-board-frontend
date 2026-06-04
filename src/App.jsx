@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client'; // 1. IMPORT SOCKET CLIENT
 
-const API_BASE = 'http://localhost:5000/api';
-const socket = io('http://localhost:5000'); // 2. CONNECT TO BACKEND TUNNEL
+const API_BASE = 'https://snippet-board-backend.onrender.com/api';
+const socket = io('https://snippet-board-backend.onrender.com');
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
