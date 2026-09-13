@@ -1,10 +1,104 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { io } from 'socket.io-client'; // 1. IMPORT SOCKET CLIENT
+import { io } from 'socket.io-client';
 
-const API_BASE = 'https://snippet-board-backend.onrender.com/api';
-const socket = io('https://snippet-board-backend.onrender.com');
+// Toggle between local (http://localhost:5000) and deployed Render URL
+const BACKEND_URL = 'http://localhost:5000'; 
+const API_BASE = `${BACKEND_URL}/api`;
+const socket = io(BACKEND_URL);
 
+// --- SUB-COMPONENT FOR INDIVIDUAL SNIPPET CARDS ---
+function SnippetCard({ item, API_BASE }) {
+  const [analysis, setAnalysis] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleAnalyze = async () => {
+    setAnalyzing(true);
+    setError('');
+    try {
+      const res = await axios.post(`${API_BASE}/snippets/analyze`, {
+        code: item.content
+      });
+      setAnalysis(res.data);
+    } catch (err) {
+      console.error('Analysis error:', err);
+      setError(err.response?.data?.error || 'Failed to analyze code snippet.');
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  return (
+    <div className="bg-[#1e293b] rounded-xl border border-slate-800 p-6 shadow-md hover:border-slate-700 transition-all space-y-4">
+      <div className="flex justify-between items-center">
+        <span className="text-sm font-bold text-teal-400">@{item.author?.username || 'anonymous'}</span>
+        <span className="text-xs text-slate-500">{new Date(item.createdAt).toLocaleTimeString()}</span>
+      </div>
+
+      <div className="bg-[#0f172a] rounded-lg p-4 border border-slate-800 font-mono text-sm text-slate-300 overflow-x-auto whitespace-pre-wrap">
+        {item.content}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+        <div className="flex flex-wrap gap-2">
+          {item.aiTags?.map((tag, idx) => (
+            <span key={idx} className="text-[10px] uppercase font-extrabold tracking-wider bg-slate-800 text-slate-400 border border-slate-700 px-2.5 py-1 rounded">
+              #{tag}
+            </span>
+          ))}
+        </div>
+
+        <button
+          onClick={handleAnalyze}
+          disabled={analyzing}
+          className="bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-400 border border-indigo-500/30 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer"
+        >
+          <span>{analyzing ? '⚡ Analyzing...' : '🔍 AI Code Review'}</span>
+        </button>
+      </div>
+
+      {error && (
+        <div className="p-2 bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs rounded">
+          {error}
+        </div>
+      )}
+
+      {analysis && (
+        <div className="bg-[#0f172a] border border-slate-700 rounded-lg p-4 space-y-3 mt-3 animate-fadeIn">
+          <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Code Quality Score</span>
+            <span className={`text-xs font-black px-2.5 py-1 rounded border ${analysis.qualityScore >= 75 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>
+              {analysis.qualityScore} / 100
+            </span>
+          </div>
+
+          {analysis.issuesFound && analysis.issuesFound.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Detected Issues</h4>
+              <ul className="list-disc list-inside text-xs text-slate-300 space-y-1">
+                {analysis.issuesFound.map((issue, idx) => (
+                  <li key={idx} className="text-slate-300">{issue}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {analysis.improvedCode && (
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-teal-400 mb-1.5">Suggested Refactor / Fix</h4>
+              <pre className="bg-[#1e293b] p-3 rounded border border-slate-800 font-mono text-xs text-emerald-300 overflow-x-auto whitespace-pre-wrap">
+                <code>{analysis.improvedCode}</code>
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- MAIN APP COMPONENT ---
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoginView, setIsLoginView] = useState(true);
@@ -15,7 +109,6 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
-  // --- LOCALSTORAGE HYDRATION ---
   useEffect(() => {
     const savedToken = localStorage.getItem('token');
     const savedName = localStorage.getItem('username');
@@ -26,23 +119,17 @@ function App() {
     }
   }, []);
 
-  // --- 3. THE MAGIC REAL-TIME LISTENER ---
   useEffect(() => {
-    // Whenever the backend shouts 'receive_snippet', do this:
     socket.on('receive_snippet', (newIncomingSnippet) => {
       setSnippets((prevSnippets) => {
-        // Prevent duplicates just in case
         if (prevSnippets.some(s => s._id === newIncomingSnippet._id)) return prevSnippets;
-        // Instantly push the new snippet to the top of the feed!
         return [newIncomingSnippet, ...prevSnippets];
       });
     });
 
-    // Clean up the listener if the user leaves the page
     return () => socket.off('receive_snippet');
   }, []);
 
-  // --- API FUNCTIONS ---
   const fetchSnippets = async () => {
     try {
       const response = await axios.get(`${API_BASE}/snippets`);
@@ -79,7 +166,6 @@ function App() {
 
     try {
       const token = localStorage.getItem('token');
-      // We send it to the database. The database saves it, tags it with AI, and then uses the Socket to broadcast it back!
       await axios.post(
         `${API_BASE}/snippets`,
         { content: newSnippet },
@@ -87,7 +173,6 @@ function App() {
       );
       
       setNewSnippet(''); 
-      // Notice we removed the manual state update here, because our Socket listener above will catch it automatically!
     } catch (err) {
       setErrorMessage(err.response?.data?.message || 'Failed to sync snippet.');
     }
@@ -103,10 +188,9 @@ function App() {
 
   const filteredSnippets = snippets.filter(item => 
     item.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.aiTags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
+    (item.aiTags && item.aiTags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase())))
   );
 
-  // --- RENDERING ---
   if (!isLoggedIn) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0f172a] p-4 font-sans">
@@ -237,22 +321,7 @@ function App() {
               </div>
             ) : (
               filteredSnippets.map((item) => (
-                <div key={item._id} className="bg-[#1e293b] rounded-xl border border-slate-800 p-6 shadow-md hover:border-slate-700 transition-all">
-                  <div className="flex justify-between items-center mb-3">
-                    <span className="text-sm font-bold text-teal-400">@{item.author?.username || 'anonymous'}</span>
-                    <span className="text-xs text-slate-500">{new Date(item.createdAt).toLocaleTimeString()}</span>
-                  </div>
-                  <div className="bg-[#0f172a] rounded-lg p-4 border border-slate-800 font-mono text-sm text-slate-300 overflow-x-auto whitespace-pre-wrap mb-4">
-                    {item.content}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {item.aiTags?.map((tag, idx) => (
-                      <span key={idx} className="text-[10px] uppercase font-extrabold tracking-wider bg-slate-800 text-slate-400 border border-slate-700 px-2.5 py-1 rounded">
-                        #{tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+                <SnippetCard key={item._id} item={item} API_BASE={API_BASE} />
               ))
             )}
           </div>
