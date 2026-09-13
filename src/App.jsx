@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 
-// Toggle between local (http://localhost:5000) and deployed Render URL
-const BACKEND_URL = 'http://localhost:5000'; 
+// 🔴 UPDATED: Uses Vite environment variable, falling back to your live Render server
+// Replace the fallback string with your exact Render web service URL!
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://snippet-board-backend.onrender.com'; 
 const API_BASE = `${BACKEND_URL}/api`;
 const socket = io(BACKEND_URL);
 
